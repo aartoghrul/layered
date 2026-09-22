@@ -46,3 +46,9 @@ The reader (`src/renderer`) turns a trackpad pinch into zoom progress. Chrome, E
 **Idea.** Inspired by Milo Johnson's idea of papers with clickable depth, proposed as the eLife Innovation Sprint 2021 project [*Building tools for readable papers with clickable depth*](https://elifesciences.org/labs/8d2f27e3/elife-innovation-sprint-2021-applications-are-now-open).
 
 **Implementation.** Authored by [**aartoghrul**](https://github.com/aartoghrul) ([alishbay.li](https://alishbay.li/)) and written by Claude Opus 5.5.
+
+## License
+
+[Apache License 2.0](LICENSE). You're free to use, modify and distribute Layered, including commercially. Keep the [`NOTICE`](NOTICE) file with any copy or derivative work, as the license requires.
+
+If you build on Layered, please credit it with a link to this repository. To cite it, use GitHub's **Cite this repository** button (from [`CITATION.cff`](CITATION.cff)).

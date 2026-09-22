@@ -1,0 +1,392 @@
+:root {
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --read: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  --ink: #1d1d1f;
+  --muted: #86868b;
+  --hair: rgba(0, 0, 0, 0.08);
+  --accent: #0a84ff;
+  --l1: 10, 132, 255;
+  --l2: 94, 92, 230;
+  --l3: 191, 90, 242;
+  --l4: 255, 55, 95;
+  --l5: 255, 159, 10;
+  --l6: 48, 209, 88;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--ui);
+  color: var(--ink);
+  background: #fbfbfd;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.04);
+  border: 0;
+  border-radius: 7px;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+button:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+button.on {
+  background: var(--accent);
+  color: white;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---------- shell ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  flex: none;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--hair);
+  background: rgba(251, 251, 253, 0.8);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+.brand {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.panes {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.pane {
+  min-width: 0;
+  height: 100%;
+}
+.editor-pane {
+  flex: none;
+  overflow: auto;
+  background: #f5f5f7;
+}
+.reader-pane {
+  flex: 1;
+}
+.divider {
+  flex: none;
+  width: 9px;
+  margin: 0 -4px;
+  position: relative;
+  z-index: 2;
+  cursor: col-resize;
+}
+.divider::after {
+  content: "";
+  position: absolute;
+  inset: 0 4px;
+  background: var(--hair);
+}
+
+/* ---------- editor ---------- */
+
+.editor-tree {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pm {
+  outline: none;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.pm p {
+  margin: 0 0 0.7em;
+}
+.pm p:last-child {
+  margin-bottom: 0;
+}
+.pm h1 {
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5em;
+}
+.pm h2 {
+  font-size: 19px;
+  margin: 0 0 0.5em;
+}
+.pm.root {
+  background: white;
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px var(--hair);
+}
+.pm.child {
+  padding: 2px 0;
+}
+
+.depth-mark {
+  background: rgba(var(--l1), 0.1);
+  text-decoration: underline dotted rgba(var(--l1), 0.7);
+  text-underline-offset: 0.22em;
+  border-radius: 3px;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.card-body .cards {
+  margin: 10px 0 2px 6px;
+}
+
+.card {
+  --c: var(--l1);
+  background: white;
+  border-radius: 10px;
+  border-left: 3px solid rgb(var(--c));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px var(--hair);
+  transition: box-shadow 0.3s;
+}
+.card[data-level="2"] { --c: var(--l2); }
+.card[data-level="3"] { --c: var(--l3); }
+.card[data-level="4"] { --c: var(--l4); }
+.card[data-level="5"] { --c: var(--l5); }
+.card[data-level="6"] { --c: var(--l6); }
+.card.flash {
+  box-shadow: 0 0 0 3px rgba(var(--c), 0.35);
+}
+.card header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.card header q {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: italic;
+}
+.card header .lvl {
+  color: rgb(var(--c));
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.chev {
+  display: inline-block;
+  transition: transform 0.2s;
+}
+.chev.open {
+  transform: rotate(90deg);
+}
+.card-body {
+  padding: 0 12px 12px;
+}
+
+.bubble {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(28, 28, 30, 0.92);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.bubble button {
+  color: white;
+  background: transparent;
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+.bubble button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+.bubble button.on {
+  background: rgba(255, 255, 255, 0.22);
+}
+.bubble button.danger {
+  color: #ff6961;
+}
+.bubble kbd {
+  font: inherit;
+  font-size: 11px;
+  opacity: 0.55;
+  margin-left: 4px;
+}
+.bubble .sep {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 3px;
+}
+
+/* ---------- reader ---------- */
+
+.stage {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background: white;
+}
+
+/* Each page is its own scroll container; during a zoom two are stacked. */
+.layer {
+  --rest: 1;
+  --src: 1;
+  --head: 1;
+  --body: 1;
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overflow-anchor: none;
+}
+.layer.parent,
+.layer.child {
+  will-change: transform;
+  pointer-events: none;
+}
+
+.reader {
+  max-width: 36em;
+  margin: 0 auto;
+  padding: 56px 32px 120px;
+  font-family: var(--read);
+  font-size: 20px;
+  line-height: 1.62;
+}
+.reader .para {
+  margin: 0 0 1em;
+}
+.reader h1.para {
+  font-family: var(--ui);
+  font-size: 38px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  margin-bottom: 0.7em;
+}
+.reader h2.para {
+  font-family: var(--ui);
+  font-size: 26px;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+/*
+ * The sentence you zoomed into, grown into the page's headline. Same face and
+ * weight as the body so the zoom reads as one continuous scale-up (1.5×).
+ */
+.headline {
+  font-family: var(--read);
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1.35;
+  margin: 0 0 0.9em;
+}
+
+/*
+ * A sentence that has depth: a soft ink gradient, darker the more levels sit
+ * beneath it (data-weight 1–4).
+ */
+.dp {
+  --ink-rgb: 40, 52, 80;
+  --a: 0.07;
+  background-image: linear-gradient(90deg, rgba(var(--ink-rgb), calc(var(--a) * 0.3)), rgba(var(--ink-rgb), var(--a)));
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  border-radius: 4px;
+  cursor: zoom-in;
+  transition: background-color 0.2s;
+}
+.dp[data-weight="2"] { --a: 0.14; }
+.dp[data-weight="3"] { --a: 0.21; }
+.dp[data-weight="4"] { --a: 0.28; }
+.dp:hover {
+  background-color: rgba(var(--ink-rgb), 0.05);
+}
+
+/* Zoom choreography, driven by CSS variables set every frame. */
+.layer.parent .leaf,
+.layer.parent .headline {
+  opacity: var(--rest);
+}
+.layer.parent .dp {
+  opacity: var(--rest);
+}
+.layer.parent .dp .leaf {
+  opacity: 1;
+}
+.layer.parent [data-src] {
+  opacity: var(--src);
+}
+.layer.child .headline {
+  opacity: var(--head);
+}
+.layer.child .body {
+  opacity: var(--body);
+}
+
+.reader-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 0 0 1px var(--hair), 0 4px 16px rgba(0, 0, 0, 0.06);
+  pointer-events: none;
+}
+
+.pm p.is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: #b0b0b5;
+}

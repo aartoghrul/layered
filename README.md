@@ -41,6 +41,8 @@ Vite + React + TypeScript, with [TipTap](https://tiptap.dev) for the editor and 
 
 The reader (`src/renderer`) turns a trackpad pinch into zoom progress. Chrome, Edge and Firefox report pinches as ctrl+wheel events; Safari has its own gesture events. As you pinch, the outer page and the sentence's page move together like one camera, so the sentence scales smoothly into its headline.
 
-## Acknowledgements
+## Credits
 
-Thanks to **Milo Johnson**, whose eLife Innovation Sprint 2021 project, [*Building tools for readable papers with clickable depth*](https://elifesciences.org/labs/8d2f27e3/elife-innovation-sprint-2021-applications-are-now-open), explored the same idea: an open-source tool for writing readable papers with clickable depth.
+**Idea.** Inspired by Milo Johnson's idea of papers with clickable depth, proposed as the eLife Innovation Sprint 2021 project [*Building tools for readable papers with clickable depth*](https://elifesciences.org/labs/8d2f27e3/elife-innovation-sprint-2021-applications-are-now-open).
+
+**Implementation.** Authored by [**aartoghrul**](https://github.com/aartoghrul) ([alishbay.li](https://alishbay.li/)) and written by [Claude Code](https://claude.com/claude-code).

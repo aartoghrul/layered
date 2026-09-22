@@ -4,6 +4,8 @@ Text on the web is flat, a habit inherited from paper. **Layered** is a small pr
 
 Readers skim the surface and zoom in only where they care. Pinch on a shaded sentence and it grows into the headline of its own page. Pinch out to return.
 
+**[Try the live demo →](https://aartoghrul.github.io/layered/)**
+
 <p align="center">
   <img src="docs/demo.gif" alt="Pinching into a shaded sentence: it grows into the headline of its own page, then zooms back out" width="720">
 </p>

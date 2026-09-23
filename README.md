@@ -45,7 +45,7 @@ The reader (`src/renderer`) turns a trackpad pinch into zoom progress. Chrome, E
 
 ## Credits
 
-**Idea.** Inspired by Milo Johnson's idea of papers with clickable depth, proposed as the eLife Innovation Sprint 2021 project [*Building tools for readable papers with clickable depth*](https://elifesciences.org/labs/8d2f27e3/elife-innovation-sprint-2021-applications-are-now-open).
+**Idea.** Inspired by [Milo Johnson](https://www.miloswebsite.com/)'s idea of papers with clickable depth, proposed as the eLife Innovation Sprint 2021 project [*Building tools for readable papers with clickable depth*](https://elifesciences.org/labs/8d2f27e3/elife-innovation-sprint-2021-applications-are-now-open).
 
 **Implementation.** Authored by [**aartoghrul**](https://github.com/aartoghrul) ([alishbay.li](https://alishbay.li/)) and written by Claude Opus 5.5.
 

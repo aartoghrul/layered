@@ -32,7 +32,7 @@ export function seedDoc(): Doc {
       ),
       p(
         t("Try it: hover over a shaded sentence and spread two fingers on your trackpad. "),
-        t("Pinch them together to zoom back out. Without a trackpad, click a sentence to zoom in and press Esc to zoom out."),
+        t("Pinch them together to zoom back out. Without a trackpad, click a sentence to zoom in and ⌥-click to zoom out."),
       ),
     ),
   );

@@ -82,146 +82,80 @@ button:disabled {
   gap: 6px;
 }
 
-.panes {
+.main {
   flex: 1;
-  display: flex;
   min-height: 0;
 }
-.pane {
-  min-width: 0;
-  height: 100%;
-}
-.editor-pane {
-  flex: none;
-  overflow: auto;
-  background: #f5f5f7;
-}
-.reader-pane {
-  flex: 1;
-}
-.divider {
-  flex: none;
-  width: 9px;
-  margin: 0 -4px;
+
+/* ---------- editing ---------- */
+
+/*
+ * The page sits in an invisible frame; any blank space inside it is the way
+ * into editing. While editing, the frame lifts with a soft shadow. Its
+ * padding is cancelled by a negative margin, so switching modes never moves
+ * the text.
+ */
+.page {
+  --pad-x: 40px;
+  --pad-top: 20px;
+  --pad-bottom: 44px;
   position: relative;
-  z-index: 2;
-  cursor: col-resize;
+  margin: calc(-1 * var(--pad-top)) calc(-1 * var(--pad-x)) calc(-1 * var(--pad-bottom));
+  padding: var(--pad-top) var(--pad-x) var(--pad-bottom);
+  border-radius: 18px;
+  transition: box-shadow 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
-.divider::after {
-  content: "";
+.page.editing {
+  cursor: text;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03), 0 14px 36px -16px rgba(0, 0, 0, 0.1);
+}
+
+/* A quiet "Saved" in the frame's corner after each change while editing. */
+.frame-cue {
   position: absolute;
-  inset: 0 4px;
-  background: var(--hair);
-}
-
-/* ---------- editor ---------- */
-
-.editor-tree {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.pm {
-  outline: none;
-  font-size: 15px;
-  line-height: 1.6;
-}
-.pm p {
-  margin: 0 0 0.7em;
-}
-.pm p:last-child {
-  margin-bottom: 0;
-}
-.pm h1 {
-  font-size: 24px;
-  letter-spacing: -0.02em;
-  margin: 0 0 0.5em;
-}
-.pm h2 {
-  font-size: 19px;
-  margin: 0 0 0.5em;
-}
-.pm.root {
-  background: white;
-  border-radius: 12px;
-  padding: 18px 20px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px var(--hair);
-}
-.pm.child {
-  padding: 2px 0;
-}
-
-.depth-mark {
-  background: rgba(var(--l1), 0.1);
-  text-decoration: underline dotted rgba(var(--l1), 0.7);
-  text-underline-offset: 0.22em;
-  border-radius: 3px;
-}
-
-.cards {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.card-body .cards {
-  margin: 10px 0 2px 6px;
-}
-
-.card {
-  --c: var(--l1);
-  background: white;
-  border-radius: 10px;
-  border-left: 3px solid rgb(var(--c));
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px var(--hair);
-  transition: box-shadow 0.3s;
-}
-.card[data-level="2"] { --c: var(--l2); }
-.card[data-level="3"] { --c: var(--l3); }
-.card[data-level="4"] { --c: var(--l4); }
-.card[data-level="5"] { --c: var(--l5); }
-.card[data-level="6"] { --c: var(--l6); }
-.card.flash {
-  box-shadow: 0 0 0 3px rgba(var(--c), 0.35);
-}
-.card header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  font-size: 12.5px;
+  right: var(--pad-x);
+  bottom: 14px;
+  font-family: var(--ui);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
   color: var(--muted);
-  cursor: pointer;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  pointer-events: none;
   user-select: none;
 }
-.card header q {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.page.editing .frame-cue.saved {
+  opacity: 0.9;
+  transform: none;
+}
+
+.page-editor,
+.headline-editor {
+  outline: none;
+  caret-color: var(--accent);
+}
+.headline .ProseMirror p {
+  margin: 0;
+}
+.page.editing .dp {
+  cursor: text;
+}
+.page-editor p.is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: #b0b0b5;
+}
+.empty-note {
+  color: var(--muted);
   font-style: italic;
-}
-.card header .lvl {
-  color: rgb(var(--c));
-  font-weight: 500;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.chev {
-  display: inline-block;
-  transition: transform 0.2s;
-}
-.chev.open {
-  transform: rotate(90deg);
-}
-.card-body {
-  padding: 0 12px 12px;
 }
 
 .bubble {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  font-family: var(--ui);
   display: flex;
   align-items: center;
   gap: 2px;
@@ -230,6 +164,9 @@ button:disabled {
   background: rgba(28, 28, 30, 0.92);
   backdrop-filter: blur(20px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.bubble[style*="opacity: 0"] {
+  transform: translateY(4px) scale(0.98);
 }
 .bubble button {
   color: white;
@@ -286,12 +223,18 @@ button:disabled {
 }
 
 .reader {
-  max-width: 36em;
+  /* Text column stays 36em - 64px wide; the extra side padding holds the frame. */
+  max-width: calc(36em + 32px);
   margin: 0 auto;
-  padding: 56px 32px 120px;
+  padding: 56px 48px 120px;
   font-family: var(--read);
   font-size: 20px;
   line-height: 1.62;
+}
+.reader .para,
+.reader .headline {
+  /* Same whitespace handling as the editor, so lines break identically in both modes. */
+  white-space: break-spaces;
 }
 .reader .para {
   margin: 0 0 1em;
@@ -330,6 +273,8 @@ button:disabled {
   --ink-rgb: 40, 52, 80;
   --a: 0.07;
   background-image: linear-gradient(90deg, rgba(var(--ink-rgb), calc(var(--a) * 0.3)), rgba(var(--ink-rgb), var(--a)));
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
   border-radius: 4px;
@@ -381,12 +326,4 @@ button:disabled {
   backdrop-filter: saturate(180%) blur(20px);
   box-shadow: 0 0 0 1px var(--hair), 0 4px 16px rgba(0, 0, 0, 0.06);
   pointer-events: none;
-}
-
-.pm p.is-empty::before {
-  content: attr(data-placeholder);
-  float: left;
-  height: 0;
-  pointer-events: none;
-  color: #b0b0b5;
 }

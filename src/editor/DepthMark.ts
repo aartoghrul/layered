@@ -1,18 +1,14 @@
-import { Mark, mergeAttributes, type Editor } from "@tiptap/core";
+import { Mark, mergeAttributes } from "@tiptap/core";
+import { depthWeight } from "../model/doc";
 import { DEPTH_MARK } from "../model/types";
-
-export interface DepthMarkOptions {
-  onAddDepth: ((editor: Editor) => void) | null;
-}
+import { useStore } from "../store";
 
 /** Marks a sentence as having an expansion stored in block `childId`. */
-export const DepthMark = Mark.create<DepthMarkOptions>({
+export const DepthMark = Mark.create({
   name: DEPTH_MARK,
+  // Outermost mark, so one shade wraps a sentence even across bold/italic runs.
+  priority: 1000,
   inclusive: false,
-
-  addOptions() {
-    return { onAddDepth: null };
-  },
 
   addAttributes() {
     return {
@@ -28,16 +24,9 @@ export const DepthMark = Mark.create<DepthMarkOptions>({
     return [{ tag: "span[data-depth-id]" }];
   },
 
-  renderHTML({ HTMLAttributes }) {
-    return ["span", mergeAttributes({ class: "depth-mark" }, HTMLAttributes), 0];
-  },
-
-  addKeyboardShortcuts() {
-    return {
-      "Mod-e": () => {
-        this.options.onAddDepth?.(this.editor);
-        return true;
-      },
-    };
+  // Looks exactly like a shaded sentence in the reader.
+  renderHTML({ HTMLAttributes, mark }) {
+    const weight = depthWeight(useStore.getState().doc.blocks, mark.attrs.childId);
+    return ["span", mergeAttributes({ class: "dp", "data-weight": weight }, HTMLAttributes), 0];
   },
 });

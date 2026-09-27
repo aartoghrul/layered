@@ -2,6 +2,8 @@ import { animate, motionValue, type MotionValue } from "motion";
 import { useEffect, useRef, type RefObject } from "react";
 
 export type Direction = "in" | "out";
+/** What started a zoom: a trackpad pinch, a click, or code (e.g. a shortcut). */
+export type Source = "pinch" | "click" | "code";
 
 interface Handlers {
   /**
@@ -9,7 +11,7 @@ interface Handlers {
    * animation from `p` (0 = where we are, 1 = where we're going); return
    * false if there's nothing to zoom.
    */
-  begin: (direction: Direction, at: Element | null, p: MotionValue<number>) => boolean;
+  begin: (direction: Direction, at: Element | null, p: MotionValue<number>, source: Source) => boolean;
   /** The zoom settled: `commit` means it ended at the destination. */
   end: (commit: boolean) => void;
 }
@@ -41,14 +43,16 @@ interface GestureEvent extends UIEvent {
 
 /**
  * Trackpad pinch → continuous zoom progress, with a spring on release.
- * Spreading the fingers zooms in, pinching them together zooms out. Click,
- * ⌥-click and Esc are fallbacks that play the same spring.
+ * Spreading the fingers zooms in, pinching them together zooms out. Click and
+ * ⌥-click are fallbacks that play the same spring. The returned `play` runs
+ * a whole zoom from code.
  */
 export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handlers) {
   const h = useRef(handlers);
   useEffect(() => {
     h.current = handlers;
   });
+  const api = useRef({ play: (_direction: Direction, _at: Element | null) => {} });
 
   useEffect(() => {
     const el = ref.current;
@@ -60,9 +64,9 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
     let releaseTimer: number | undefined;
     const pointer = { x: 0, y: 0 };
 
-    const begin = (direction: Direction, x: number, y: number, baseScale = 1) => {
+    const begin = (direction: Direction, at: Element | null, source: Source, baseScale = 1) => {
       const p = motionValue(0);
-      if (!h.current.begin(direction, document.elementFromPoint(x, y), p)) return false;
+      if (!h.current.begin(direction, at, p, source)) return false;
       g = { p, direction, settling: false, baseScale };
       return true;
     };
@@ -100,7 +104,7 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
         settle();
       }, RELEASE_MS);
       if (locked || g?.settling) return;
-      if (!g && (e.deltaY === 0 || !begin(e.deltaY < 0 ? "in" : "out", e.clientX, e.clientY))) return;
+      if (!g && (e.deltaY === 0 || !begin(e.deltaY < 0 ? "in" : "out", document.elementFromPoint(e.clientX, e.clientY), "pinch"))) return;
       const delta = g!.direction === "in" ? -e.deltaY : e.deltaY;
       track(g!.p.get() + delta * WHEEL_GAIN);
     };
@@ -113,7 +117,7 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
       e.preventDefault();
       const s = (e as GestureEvent).scale;
       if (locked || g?.settling) return;
-      if (!g && (Math.abs(s - 1) < 0.03 || !begin(s > 1 ? "in" : "out", pointer.x, pointer.y, s))) return;
+      if (!g && (Math.abs(s - 1) < 0.03 || !begin(s > 1 ? "in" : "out", document.elementFromPoint(pointer.x, pointer.y), "pinch", s))) return;
       const v = g!.direction === "in" ? (s - g!.baseScale) / SCALE_IN : (g!.baseScale - s) / SCALE_OUT;
       track(v);
     };
@@ -131,12 +135,11 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
 
     const onClick = (e: MouseEvent) => {
       if (g || window.getSelection()?.toString()) return;
-      if (begin(e.altKey ? "out" : "in", e.clientX, e.clientY)) settle(1);
+      if (begin(e.altKey ? "out" : "in", document.elementFromPoint(e.clientX, e.clientY), "click")) settle(1);
     };
 
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || g || (document.activeElement as HTMLElement | null)?.isContentEditable) return;
-      if (begin("out", pointer.x, pointer.y)) settle(1);
+    api.current.play = (direction, at) => {
+      if (!g && begin(direction, at, "code")) settle(1);
     };
 
     el.addEventListener("wheel", onWheel, { passive: false });
@@ -145,7 +148,6 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
     el.addEventListener("gestureend", onGestureEnd);
     el.addEventListener("pointermove", onPointerMove);
     el.addEventListener("click", onClick);
-    window.addEventListener("keydown", onKey);
     return () => {
       clearTimeout(releaseTimer);
       el.removeEventListener("wheel", onWheel);
@@ -154,7 +156,8 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
       el.removeEventListener("gestureend", onGestureEnd);
       el.removeEventListener("pointermove", onPointerMove);
       el.removeEventListener("click", onClick);
-      window.removeEventListener("keydown", onKey);
     };
   }, [ref]);
+
+  return api.current;
 }

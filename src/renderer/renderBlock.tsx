@@ -1,10 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
 import type { ReactNode } from "react";
-import { depthIdOf, levelsBelow } from "../model/doc";
+import { depthIdOf, depthWeight } from "../model/doc";
 import type { Doc } from "../model/types";
-
-/** Most levels of depth that still get a darker shade. */
-const MAX_WEIGHT = 4;
 
 /**
  * Render a paragraph's inline content. Sentences with depth become zoom
@@ -23,7 +20,7 @@ export function renderInline(nodes: JSONContent[] | undefined, blocks: Doc["bloc
     const start = i;
     while (i < list.length && depthIdOf(list[i]) === id) i++;
     out.push(
-      <span key={start} className="dp" data-depth-id={id} data-weight={Math.min(levelsBelow(blocks, id, memo), MAX_WEIGHT)}>
+      <span key={start} className="dp" data-depth-id={id} data-weight={depthWeight(blocks, id, memo)}>
         {list.slice(start, i).map((n, k) => leaf(n, `${start}.${k}`))}
       </span>,
     );

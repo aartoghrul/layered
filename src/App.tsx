@@ -1,13 +1,9 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { isDoc } from "./model/doc";
-import { DepthTree } from "./editor/DepthTree";
 import { Renderer } from "./renderer/Renderer";
 import { useStore } from "./store";
 
 export function App() {
-  const version = useStore((s) => s.version);
-  const [split, setSplit] = useState(0.46);
-  const [readerOnly, setReaderOnly] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const exportDoc = () => {
@@ -30,18 +26,6 @@ export function App() {
     }
   };
 
-  const startDrag = (e: React.PointerEvent) => {
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) => setSplit(Math.min(0.75, Math.max(0.2, ev.clientX / window.innerWidth)));
-    const up = () => {
-      el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerup", up);
-    };
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
-  };
-
   return (
     <div className="app">
       <header className="topbar">
@@ -62,23 +46,10 @@ export function App() {
           <button onClick={() => confirm("Replace the document with the sample?") && useStore.getState().resetSample()}>
             Reset sample
           </button>
-          <button className={readerOnly ? "on" : ""} onClick={() => setReaderOnly((r) => !r)}>
-            Reader only
-          </button>
         </div>
       </header>
-      <main className="panes">
-        {!readerOnly && (
-          <>
-            <section className="pane editor-pane" style={{ width: `${split * 100}%` }}>
-              <DepthTree key={version} />
-            </section>
-            <div className="divider" onPointerDown={startDrag} />
-          </>
-        )}
-        <section className="pane reader-pane">
-          <Renderer />
-        </section>
+      <main className="main">
+        <Renderer />
       </main>
     </div>
   );

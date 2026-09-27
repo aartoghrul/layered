@@ -22,18 +22,22 @@ npm run build    # production build in dist/
 
 ## Use
 
-The window has two panes: an editor on the left and a reader on the right.
+Reading and writing happen on the same page.
 
-**Writing (left pane)**
-- Select a sentence and press **⌘E** (or **Add depth** in the menu that pops up over the selection). A box opens below, where you write what the sentence zooms into.
-- Sentences inside that box can have depth of their own, to any level.
-- To remove a sentence's depth, place the cursor inside it and choose **Remove depth**.
-
-**Reading (right pane)**
+**Reading**
 - Sentences with depth are shaded. The darker the shade, the more layers lie beneath.
 - **Zoom in:** spread two fingers on the trackpad over a shaded sentence, or click it.
-- **Zoom out:** pinch two fingers together, press **Esc**, or ⌥-click.
+- **Zoom out:** pinch two fingers together, or ⌥-click.
 - The zoom follows your fingers and springs to the nearer end when you let go.
+
+**Writing**
+- Click any **blank space** on the page (a margin, the gap between paragraphs, the end of a line) to edit it in place. The page lifts slightly while you write, and changes save as you type.
+- Select a sentence and press **⌘+** (or **Add depth** in the menu over the selection) to give it depth: it zooms straight into the sentence's new, empty page, ready for writing.
+- With the caret in a shaded sentence, **⌘+** (or **Go deeper**) goes into it; **⌘−** goes out one layer (Ctrl on Windows and Linux). **Remove depth** flattens a sentence again.
+- On an inner page, the headline is the sentence you zoomed in from; editing it rewrites that sentence one layer up.
+- Bold and italic carry through every layer, headlines included.
+- Pinching works while writing too, and you keep writing wherever you land. Depth is added only while writing; reading is for exploring it.
+- Click anywhere outside the page to finish.
 
 Your document saves automatically in the browser. Use **Export** and **Import** to move it around as JSON, and **Reset sample** to restore the example text. **Reset sample** replaces your current document.
 

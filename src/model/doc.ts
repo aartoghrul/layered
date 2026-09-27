@@ -79,11 +79,6 @@ export function sentenceOf(doc: Doc, parentId: BlockId, childId: BlockId): strin
   return collectDepths(doc.blocks[parentId]?.content).find((d) => d.childId === childId)?.text ?? null;
 }
 
-/** A sentence reads as a headline without its trailing punctuation. */
-export function asHeadline(sentence: string): string {
-  return sentence.trim().replace(/[.,;:]+$/, "");
-}
-
 /**
  * A zoom path is the chain of depth ids from the root down to the page being
  * read. Cut it at the first step that no longer exists (e.g. the mark was
@@ -120,4 +115,104 @@ export function levelsBelow(blocks: Doc["blocks"], id: BlockId, memo = new Map<B
   }
   memo.set(id, deepest + 1);
   return deepest + 1;
+}
+
+/** The formatted runs of the sentence that opens into `childId`, without the depth mark. */
+export function sentenceNodes(doc: Doc, parentId: BlockId, childId: BlockId): JSONContent[] {
+  const out: JSONContent[] = [];
+  const walk = (node: JSONContent) => {
+    for (const n of node.content ?? []) {
+      if (depthIdOf(n) === childId) out.push({ ...n, marks: n.marks?.filter((m) => m.type !== DEPTH_MARK) });
+      else if (n.content) walk(n);
+    }
+  };
+  const parent = doc.blocks[parentId]?.content;
+  if (parent) walk(parent);
+  return out;
+}
+
+/**
+ * A sentence as a headline: the same formatted runs, minus trailing
+ * punctuation (returned as its own run, formatting kept, so an edit can put
+ * it back exactly).
+ */
+export function headlineOf(nodes: JSONContent[]): { nodes: JSONContent[]; trailing: JSONContent | null } {
+  const out = nodes.map((n) => ({ ...n }));
+  let trailing: JSONContent | null = null;
+  while (out.length) {
+    const last = out[out.length - 1];
+    const text = (last.text ?? "").replace(/\s+$/, "");
+    const m = text.match(/[.,;:]+$/);
+    const prev = trailing as JSONContent | null;
+    if (m) trailing = { type: "text", text: m[0] + (prev?.text ?? ""), marks: prev?.marks ?? last.marks };
+    last.text = m ? text.slice(0, -m[0].length) : text;
+    if (last.text) break;
+    out.pop();
+  }
+  return { nodes: out, trailing };
+}
+
+/**
+ * Replace the sentence that opens into `childId` with new formatted runs,
+ * giving each run the depth mark so the sentence keeps its page.
+ */
+export function replaceSentence(content: JSONContent, childId: BlockId, runs: JSONContent[]): JSONContent {
+  const nodes = content.content;
+  if (!nodes) return content;
+  const out: JSONContent[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    if (depthIdOf(nodes[i]) !== childId) {
+      out.push(nodes[i].content ? replaceSentence(nodes[i], childId, runs) : nodes[i]);
+      continue;
+    }
+    const depth = nodes[i].marks!.find((m) => m.type === DEPTH_MARK)!;
+    for (const r of runs) out.push({ type: "text", text: r.text, marks: [...(r.marks ?? []), depth] });
+    while (i + 1 < nodes.length && depthIdOf(nodes[i + 1]) === childId) i++;
+  }
+  return { ...content, content: out };
+}
+
+/** True when a page has no text at all. */
+export function isEmptyPage(content: JSONContent | undefined): boolean {
+  const text = (n: JSONContent): string => (n.text ?? "") + (n.content ?? []).map(text).join("");
+  return !content || !text(content).trim();
+}
+
+/** Shade step (1–4) for a sentence: how many levels lie beneath it, capped. */
+export function depthWeight(blocks: Doc["blocks"], id: BlockId, memo?: Map<BlockId, number>): number {
+  return Math.min(levelsBelow(blocks, id, memo), 4);
+}
+
+/**
+ * A sentence only has depth if its page has something in it. Strip depth from
+ * sentences whose page is empty (and drop those pages).
+ */
+export function pruneEmptyDepths(doc: Doc): Doc {
+  const empty = new Set(Object.keys(doc.blocks).filter((id) => id !== doc.rootId && isEmptyPage(doc.blocks[id].content)));
+  if (!empty.size) return doc;
+  const strip = (node: JSONContent): JSONContent => {
+    if (!node.content) {
+      const id = depthIdOf(node);
+      if (!id || !empty.has(id)) return node;
+      const marks = node.marks!.filter((m) => m.type !== DEPTH_MARK);
+      return { ...node, marks: marks.length ? marks : undefined };
+    }
+    return { ...node, content: node.content.map(strip) };
+  };
+  const blocks: Doc["blocks"] = {};
+  for (const [id, b] of Object.entries(doc.blocks)) blocks[id] = { ...b, content: strip(b.content) };
+  return garbageCollect({ ...doc, blocks });
+}
+
+/** Paragraph index and character offset just after the sentence that opens into `childId`. */
+export function offsetAfterSentence(content: JSONContent | undefined, childId: BlockId): { index: number; offset: number } | null {
+  let found: { index: number; offset: number } | null = null;
+  (content?.content ?? []).forEach((para, index) => {
+    let offset = 0;
+    for (const n of para.content ?? []) {
+      offset += n.text?.length ?? 0;
+      if (depthIdOf(n) === childId) found = { index, offset };
+    }
+  });
+  return found;
 }

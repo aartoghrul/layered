@@ -1,10 +1,11 @@
 import type { MotionValue } from "motion";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { validPath } from "../model/doc";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { offsetAfterSentence, validPath } from "../model/doc";
 import type { BlockId } from "../model/types";
+import { MOD } from "../platform";
 import { useStore } from "../store";
 import { usePinchZoom, type Direction } from "./usePinchZoom";
-import { View } from "./View";
+import { View, type EditHandlers, type EditStart } from "./View";
 
 interface Transition {
   /** The outer page, containing the sentence being zoomed. */
@@ -39,16 +40,26 @@ export function Renderer() {
   const layers = useRef(new Map<string, HTMLDivElement>());
   const scrolls = useRef(new Map<string, number>());
 
+  const [editing, setEditing] = useState(false);
+  /** How editing opened, so the caret goes to the right place. */
+  const [editStart, setEditStart] = useState<EditStart | null>(null);
+
   // Gesture callbacks can fire before React re-renders, so track the live values in refs.
-  const live = useRef({ path, transition });
+  // `resumeEditing`: a zoom began while writing, so writing resumes where it lands.
+  const live = useRef({ path, transition, editing, resumeEditing: false });
   live.current.path = path;
+  live.current.editing = editing;
 
-  useEffect(() => setPath([]), [version]);
+  useEffect(() => {
+    setPath([]);
+    setEditing(false);
+  }, [version]);
 
-  usePinchZoom(stageRef, {
-    begin: (direction, at, p) => {
-      const { path, transition } = live.current;
-      if (transition) return false;
+  const zoom = usePinchZoom(stageRef, {
+    begin: (direction, at, p, source) => {
+      const { path, transition, editing } = live.current;
+      // While writing, a click places the caret rather than zooming.
+      if (transition || (editing && source === "click")) return false;
       let t: Transition;
       if (direction === "in") {
         const id = at?.closest<HTMLElement>(".layer [data-depth-id]")?.dataset.depthId;
@@ -60,17 +71,61 @@ export function Renderer() {
       }
       live.current.transition = t;
       setTransition(t);
+      // The zoom animates the reading form of the page; writing resumes on landing.
+      if (editing) {
+        live.current.resumeEditing = true;
+        setEditing(false);
+      }
       return true;
     },
     end: (commit) => {
       const t = live.current.transition;
       if (!t) return;
       live.current.transition = null;
-      live.current.path = (t.direction === "in") === commit ? t.child : t.parent;
+      const landedOuter = (t.direction === "in") !== commit;
+      const store = useStore.getState();
+      // Where the sentence we came from ends on the outer page, for the caret.
+      const outerId = t.parent.at(-1) ?? store.doc.rootId;
+      const after = offsetAfterSentence(store.doc.blocks[outerId]?.content, t.child[t.parent.length]);
+      // A page left empty doesn't count: its sentence goes back to plain text.
+      if (landedOuter) store.pruneEmpty();
+      live.current.path = landedOuter ? t.parent : t.child;
       setPath(live.current.path);
       setTransition(null);
+      if (live.current.resumeEditing) {
+        live.current.resumeEditing = false;
+        // Back on the outer page, the caret waits right after the sentence we came from.
+        setEditStart(landedOuter && after ? { where: "body", at: after } : { where: "body", edge: "start" });
+        setEditing(true);
+      }
     },
   });
+
+  const startEditing = useCallback((at: EditStart) => {
+    if (live.current.transition) return;
+    setEditStart(at);
+    setEditing(true);
+  }, []);
+  // ⌘+ / ⌘− and "Go deeper" while writing.
+  const zoomFromEditor = useCallback(
+    (direction: "in" | "out", childId?: BlockId) => {
+      const layer = layers.current.get(keyOf(live.current.path));
+      const at = childId ? (layer?.querySelector(`[data-depth-id="${CSS.escape(childId)}"]`) ?? null) : null;
+      zoom.play(direction, at);
+    },
+    [zoom],
+  );
+  const editHandlers: EditHandlers = useMemo(() => ({ onZoom: zoomFromEditor, start: editStart }), [zoomFromEditor, editStart]);
+
+  // Finish editing on a click outside the page.
+  useEffect(() => {
+    if (!editing) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!(e.target as Element).closest(".page.editing, .bubble")) setEditing(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [editing]);
 
   /*
    * The zoom is a camera move over two stacked pages. The outer page scales
@@ -144,13 +199,26 @@ export function Renderer() {
             doc={doc}
             path={path}
             role={role}
+            editing={role === "current" && editing ? editHandlers : undefined}
+            onStartEdit={role === "current" && !editing ? startEditing : undefined}
           />
         );
       })}
       <div className="reader-hint">
-        <span>Pinch to zoom</span>
-        <span>Click a sentence to zoom in</span>
-        <span>Esc to zoom out</span>
+        {editing ? (
+          <>
+            <span>Select text and press {MOD}+ to give it depth</span>
+            <span>{MOD}+ / {MOD}− to move between layers</span>
+            <span>Click outside when done</span>
+          </>
+        ) : (
+          <>
+            <span>Pinch to zoom</span>
+            <span>Click a sentence to zoom in</span>
+            <span>⌥-click to zoom out</span>
+            <span>Click any blank space to edit</span>
+          </>
+        )}
       </div>
     </div>
   );

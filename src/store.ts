@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import { create } from "zustand";
-import { garbageCollect, isDoc, paragraphDoc } from "./model/doc";
+import { garbageCollect, isDoc, paragraphDoc, pruneEmptyDepths, replaceSentence } from "./model/doc";
 import { seedDoc } from "./model/seed";
 import type { BlockId, Doc } from "./model/types";
 
@@ -11,7 +11,7 @@ function load(): Doc {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (isDoc(parsed)) return garbageCollect(parsed);
+      if (isDoc(parsed)) return pruneEmptyDepths(garbageCollect(parsed));
     }
   } catch {
     // fall through to the sample
@@ -25,6 +25,10 @@ interface State {
   version: number;
   setBlockContent: (id: BlockId, content: JSONContent) => void;
   ensureBlock: (id: BlockId) => void;
+  /** Rewrite the sentence in `parentId` that opens into `childId` (formatted runs). */
+  setSentence: (parentId: BlockId, childId: BlockId, runs: JSONContent[]) => void;
+  /** Remove depth from sentences whose page is empty. */
+  pruneEmpty: () => void;
   replaceDoc: (doc: Doc) => void;
   resetSample: () => void;
 }
@@ -38,7 +42,15 @@ export const useStore = create<State>((set, get) => ({
     if (get().doc.blocks[id]) return;
     get().setBlockContent(id, paragraphDoc(""));
   },
-  replaceDoc: (doc) => set((s) => ({ doc: garbageCollect(doc), version: s.version + 1 })),
+  setSentence: (parentId, childId, runs) => {
+    const parent = get().doc.blocks[parentId];
+    if (parent) get().setBlockContent(parentId, replaceSentence(parent.content, childId, runs));
+  },
+  pruneEmpty: () => {
+    const doc = pruneEmptyDepths(get().doc);
+    if (doc !== get().doc) set({ doc });
+  },
+  replaceDoc: (doc) => set((s) => ({ doc: pruneEmptyDepths(garbageCollect(doc)), version: s.version + 1 })),
   resetSample: () => set((s) => ({ doc: seedDoc(), version: s.version + 1 })),
 }));
 

@@ -327,3 +327,77 @@ button:disabled {
   box-shadow: 0 0 0 1px var(--hair), 0 4px 16px rgba(0, 0, 0, 0.06);
   pointer-events: none;
 }
+
+/* ---------- strata map ---------- */
+
+/*
+ * The document's layers in the margin: a row per layer, a dash per page.
+ * Ink for the page you're on, grey for the path up to it, faint for the rest.
+ */
+.strata {
+  position: absolute;
+  top: 64px;
+  left: 32px;
+  z-index: 4;
+  width: 180px;
+  padding: 6px 0 10px;
+  font-family: var(--ui);
+}
+.strata svg {
+  display: block;
+  overflow: visible;
+  transition: height 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.strata .dash {
+  cursor: pointer;
+  transition: transform 0.45s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.3s;
+}
+.strata .ink {
+  stroke: rgba(0, 0, 0, 0.14);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  transition: stroke 0.25s;
+}
+.strata .dash.path .ink {
+  stroke: rgba(0, 0, 0, 0.42);
+}
+.strata .dash.current .ink {
+  stroke: rgba(0, 0, 0, 0.85);
+  stroke-width: 2;
+}
+.strata .dash.current {
+  cursor: default;
+}
+.strata .dash.hover:not(.current) .ink {
+  stroke: rgba(0, 0, 0, 0.6);
+}
+.strata .hit {
+  stroke: transparent;
+  stroke-width: 12;
+}
+.strata .thread {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.22);
+  stroke-width: 1;
+}
+.strata .thread.hovered {
+  stroke: rgba(0, 0, 0, 0.12);
+}
+.strata-caption {
+  min-height: 16px;
+  margin-top: 6px;
+  max-width: 180px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* Only where the margin has room for it. */
+@media (max-width: 1080px) {
+  .strata {
+    display: none;
+  }
+}

@@ -216,3 +216,42 @@ export function offsetAfterSentence(content: JSONContent | undefined, childId: B
   });
   return found;
 }
+
+/** One page in the layer tree, for the strata map. */
+export interface LayerNode {
+  /** Depth ids from the root down to this page; empty = the root page. */
+  path: BlockId[];
+  depth: number;
+  /** How much text the page holds. */
+  chars: number;
+  /** Where its sentence starts in the parent page's text, 0–1. */
+  at: number;
+  title: string;
+  children: LayerNode[];
+}
+
+function textOf(node: JSONContent): string {
+  return (node.text ?? "") + (node.content ?? []).map(textOf).join("");
+}
+
+/** Every page as a tree, children in the order their sentences appear. */
+export function layerTree(doc: Doc): LayerNode {
+  const build = (id: BlockId, path: BlockId[], at: number, title: string, seen: BlockId[]): LayerNode => {
+    const content = doc.blocks[id]?.content;
+    const total = content ? textOf(content).length : 0;
+    const children: LayerNode[] = [];
+    let offset = 0;
+    for (const para of content?.content ?? []) {
+      for (const n of para.content ?? []) {
+        const child = depthIdOf(n);
+        if (child && doc.blocks[child] && !seen.includes(child) && !children.some((c) => c.path.at(-1) === child)) {
+          const sentence = headlineOf(sentenceNodes(doc, id, child)).nodes.map(textOf).join("");
+          children.push(build(child, [...path, child], total ? offset / total : 0, sentence, [...seen, child]));
+        }
+        offset += n.text?.length ?? 0;
+      }
+    }
+    return { path, depth: path.length, chars: total, at, title, children };
+  };
+  return build(doc.rootId, [], 0, rootTitle(doc), [doc.rootId]);
+}

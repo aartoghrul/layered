@@ -29,6 +29,7 @@ Reading and writing happen on the same page.
 - **Zoom in:** spread two fingers on the trackpad over a shaded sentence, or click it.
 - **Zoom out:** pinch two fingers together, or ⌥-click.
 - The zoom follows your fingers and springs to the nearer end when you let go.
+- The **strata map** in the left margin shows the document's layers: a row per layer, a dash per page, its length the amount of text, placed under where its sentence sits. The page you're on is in ink and the path up to it in grey. Hover to see every layer and each page's title; click any page to go straight there, across as many layers as needed.
 
 **Writing**
 - Click any **blank space** on the page (a margin, the gap between paragraphs, the end of a line) to edit it in place. The page lifts slightly while you write, and changes save as you type.

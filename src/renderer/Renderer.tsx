@@ -4,6 +4,7 @@ import { offsetAfterSentence, validPath } from "../model/doc";
 import type { BlockId } from "../model/types";
 import { MOD } from "../platform";
 import { useStore } from "../store";
+import { StrataMap } from "./StrataMap";
 import { usePinchZoom, type Direction } from "./usePinchZoom";
 import { View, type EditHandlers, type EditStart } from "./View";
 
@@ -46,7 +47,15 @@ export function Renderer() {
 
   // Gesture callbacks can fire before React re-renders, so track the live values in refs.
   // `resumeEditing`: a zoom began while writing, so writing resumes where it lands.
-  const live = useRef({ path, transition, editing, resumeEditing: false });
+  // `jump`: an explicit zoom queued by the strata map; `then`: where to go after it lands.
+  const live = useRef({
+    path,
+    transition,
+    editing,
+    resumeEditing: false,
+    jump: null as Omit<Transition, "p"> | null,
+    then: null as BlockId[] | null,
+  });
   live.current.path = path;
   live.current.editing = editing;
 
@@ -61,7 +70,11 @@ export function Renderer() {
       // While writing, a click places the caret rather than zooming.
       if (transition || (editing && source === "click")) return false;
       let t: Transition;
-      if (direction === "in") {
+      const jump = live.current.jump;
+      live.current.jump = null;
+      if (jump) {
+        t = { ...jump, p };
+      } else if (direction === "in") {
         const id = at?.closest<HTMLElement>(".layer [data-depth-id]")?.dataset.depthId;
         if (!id) return false;
         t = { parent: path, child: [...path, id], direction, p };
@@ -98,8 +111,31 @@ export function Renderer() {
         setEditStart(landedOuter && after ? { where: "body", at: after } : { where: "body", edge: "start" });
         setEditing(true);
       }
+      // A sideways jump: now down from the shared page to the target.
+      const next = live.current.then;
+      live.current.then = null;
+      if (next && commit) requestAnimationFrame(() => jumpTo(next));
     },
   });
+
+  /** Go straight to any page: one camera move up or down, or up-then-down for a sideways move. */
+  const jumpTo = (target: BlockId[]) => {
+    const cur = live.current.path;
+    if (live.current.transition) return;
+    let common = 0;
+    while (common < cur.length && common < target.length && cur[common] === target[common]) common++;
+    if (common === cur.length && target.length > cur.length) {
+      live.current.jump = { parent: cur, child: target, direction: "in" };
+      zoom.play("in", null);
+    } else if (common === target.length && cur.length > target.length) {
+      live.current.jump = { parent: target, child: cur, direction: "out" };
+      zoom.play("out", null);
+    } else if (common < cur.length) {
+      live.current.jump = { parent: cur.slice(0, common), child: cur, direction: "out" };
+      live.current.then = target;
+      zoom.play("out", null);
+    }
+  };
 
   const startEditing = useCallback((at: EditStart) => {
     if (live.current.transition) return;
@@ -121,7 +157,7 @@ export function Renderer() {
   useEffect(() => {
     if (!editing) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (!(e.target as Element).closest(".page.editing, .bubble")) setEditing(false);
+      if (!(e.target as Element).closest(".page.editing, .bubble, .strata")) setEditing(false);
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
@@ -204,6 +240,7 @@ export function Renderer() {
           />
         );
       })}
+      <StrataMap doc={doc} path={path} onJump={jumpTo} />
       <div className="reader-hint">
         {editing ? (
           <>

@@ -1,4 +1,4 @@
-import { animate, motionValue, type MotionValue } from "motion";
+import { motionValue, type MotionValue } from "motion";
 import { useEffect, useRef, type RefObject } from "react";
 
 export type Direction = "in" | "out";
@@ -23,16 +23,66 @@ const SCALE_IN = 0.5;
 const SCALE_OUT = 0.35;
 /** Wheel pinches have no end event; this much silence counts as release. */
 const RELEASE_MS = 160;
-/** On release, springs open past this progress, otherwise springs back. */
+/**
+ * A pinch past this progress finishes on its own, carrying on from the
+ * fingers' speed; released short of it, it springs back. Finishing only on
+ * release would stall: Chrome sends no release, so the page would sit
+ * mid-zoom until RELEASE_MS of silence, then lurch on from rest.
+ */
 const THRESHOLD = 0.3;
-const SPRING = { type: "spring", stiffness: 320, damping: 34, restDelta: 0.001 } as const;
+
+/*
+ * The text has weight. Every zoom moves a target along a path, and progress
+ * follows the target like a mass on a critically damped spring: it never
+ * starts or stops abruptly, and speed carries through every hand-off. While
+ * the fingers are down the target is the fingers; to finish, the target
+ * glides from where it is to the end, starting at the speed it was moving and
+ * easing to rest.
+ */
+/** How closely the text follows its target; it trails by about 2 / RATE s. */
+const RATE = 18;
+/** A zoom from a click or a key: unhurried, so the page reads as moving. */
+export const ZOOM_MS = 820;
+/** Finishing a pinch: quick when the fingers were fast, never abrupt. */
+const FINISH_MIN_MS = 380;
+const FINISH_MAX_MS = 820;
+const SPRING_BACK_MS = 520;
 
 const clamp = (v: number) => Math.min(1, Math.max(0, v));
+
+/** The target's path to an end: a cubic from where it is, at the speed it had, to rest. */
+interface Glide {
+  from: number;
+  to: number;
+  /** Starting speed, in progress per second. */
+  speed: number;
+  /** In seconds. */
+  duration: number;
+  /** When the glide set off (performance.now()), once motion has started. */
+  start: number | null;
+}
+
+function glideAt(gl: Glide, now: number) {
+  const s = Math.min(1, (now - gl.start!) / 1000 / gl.duration);
+  const h10 = s * s * s - 2 * s * s + s;
+  const h01 = -2 * s * s * s + 3 * s * s;
+  return gl.from + gl.speed * gl.duration * h10 + (gl.to - gl.from) * h01;
+}
 
 interface Active {
   p: MotionValue<number>;
   direction: Direction;
-  settling: boolean;
+  /** Where progress is headed: the fingers, or once settling, along the glide. */
+  target: number;
+  /** Set once settling: the end the zoom is heading to, and the path there. */
+  to: 0 | 1 | null;
+  glide: Glide | null;
+  /** In progress per second. */
+  velocity: number;
+  /** The zoom's first frame has painted, so motion can start. */
+  ready: boolean;
+  /** The motion loop's pending frame, if it's running. */
+  frame: number;
   /** Safari scale at which the gesture picked its target. */
   baseScale: number;
 }
@@ -42,24 +92,24 @@ interface GestureEvent extends UIEvent {
 }
 
 /**
- * Trackpad pinch → continuous zoom progress, with a spring on release.
+ * Trackpad pinch → continuous zoom progress, finishing on its own.
  * Spreading the fingers zooms in, pinching them together zooms out. Click and
- * ⌥-click are fallbacks that play the same spring. The returned `play` runs
- * a whole zoom from code.
+ * ⌥-click are fallbacks that play a whole zoom. The returned `play` runs a
+ * whole zoom from code, optionally over `ms`.
  */
 export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handlers) {
   const h = useRef(handlers);
   useEffect(() => {
     h.current = handlers;
   });
-  const api = useRef({ play: (_direction: Direction, _at: Element | null) => {} });
+  const api = useRef({ play: (_direction: Direction, _at: Element | null, _ms?: number) => {} });
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
 
     let g: Active | null = null;
-    let locked = false; // after a pinch fully opens, ignore it until the fingers lift
+    let locked = false; // after a pinch commits, ignore it until the fingers lift
     let inSafariGesture = false;
     let releaseTimer: number | undefined;
     const pointer = { x: 0, y: 0 };
@@ -67,7 +117,16 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
     const begin = (direction: Direction, at: Element | null, source: Source, baseScale = 1) => {
       const p = motionValue(0);
       if (!h.current.begin(direction, at, p, source)) return false;
-      g = { p, direction, settling: false, baseScale };
+      const cur: Active = { p, direction, target: 0, to: null, glide: null, velocity: 0, ready: false, frame: 0, baseScale };
+      g = cur;
+      // Mounting the next page makes the next frame heavy. Start moving on the
+      // frame after it, or the first step of motion lands late and jumps.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          cur.ready = true;
+          if (g === cur) move(cur);
+        }),
+      );
       return true;
     };
 
@@ -76,22 +135,72 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
       h.current.end(commit);
     };
 
-    const settle = (force?: 0 | 1) => {
-      if (!g || g.settling) return;
-      const cur = g;
-      cur.settling = true;
-      const to = force ?? (cur.p.get() > THRESHOLD ? 1 : 0);
-      animate(cur.p, to, SPRING).then(() => finish(to === 1));
+    /** Make sure the motion loop is running. */
+    const move = (cur: Active) => {
+      if (!cur.ready || cur.frame) return;
+      const now = performance.now();
+      if (cur.glide && cur.glide.start === null) cur.glide.start = now;
+      step(cur, now);
+    };
+
+    /** One frame: advance the target, then the text after it (solved exactly, so uneven frames stay smooth). */
+    const step = (cur: Active, last: number) => {
+      cur.frame = requestAnimationFrame((now) => {
+        cur.frame = 0;
+        if (g !== cur) return;
+        const gl = cur.glide;
+        if (gl) {
+          cur.target = glideAt(gl, now);
+          if (now - gl.start! >= gl.duration * 1000) cur.glide = null;
+        }
+        const t = Math.min(now - last, 50) / 1000;
+        const e0 = cur.p.get() - cur.target;
+        const k = cur.velocity + RATE * e0;
+        const decay = Math.exp(-RATE * t);
+        const e = (e0 + k * t) * decay;
+        cur.velocity = (cur.velocity - RATE * k * t) * decay;
+        if (!cur.glide && Math.abs(e) < 2e-4 && Math.abs(cur.velocity) < 2e-3) {
+          cur.velocity = 0;
+          cur.p.set(cur.target);
+          if (cur.to !== null) finish(cur.to === 1);
+          return; // otherwise at rest until the fingers move again
+        }
+        cur.p.set(cur.target + e);
+        step(cur, now);
+      });
+    };
+
+    const settling = () => g !== null && g.to !== null;
+
+    /**
+     * Head for an end: `force`, or whichever side of the threshold the fingers
+     * are on. The target sets off at the speed the text had, so a pinch's
+     * momentum carries straight into the finish.
+     */
+    const settle = (force?: 0 | 1, ms?: number) => {
+      if (!g || g.to !== null) return;
+      const to = force ?? (g.target > THRESHOLD ? 1 : 0);
+      const from = g.target;
+      const speed = g.velocity;
+      const toward = speed * Math.sign(to - from);
+      let duration = (ms ?? ZOOM_MS) / 1000;
+      if (ms === undefined && speed !== 0) {
+        // Carried on from a pinch: about the time its speed would take, easing out.
+        duration = toward > 0 ? (2.2 * Math.abs(to - from)) / toward : SPRING_BACK_MS / 1000;
+        duration = Math.min(FINISH_MAX_MS, Math.max(FINISH_MIN_MS, duration * 1000)) / 1000;
+      }
+      g.to = to;
+      g.glide = { from, to, speed, duration, start: g.frame ? performance.now() : null };
+      move(g);
     };
 
     const track = (v: number) => {
-      if (!g || g.settling) return;
-      g.p.set(clamp(v));
-      if (v >= 1) {
-        g.settling = true;
+      if (!g || g.to !== null) return;
+      g.target = clamp(v);
+      if (g.target > THRESHOLD) {
         locked = true;
-        finish(true);
-      }
+        settle(1);
+      } else move(g);
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -103,10 +212,10 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
         locked = false;
         settle();
       }, RELEASE_MS);
-      if (locked || g?.settling) return;
+      if (locked || settling()) return;
       if (!g && (e.deltaY === 0 || !begin(e.deltaY < 0 ? "in" : "out", document.elementFromPoint(e.clientX, e.clientY), "pinch"))) return;
       const delta = g!.direction === "in" ? -e.deltaY : e.deltaY;
-      track(g!.p.get() + delta * WHEEL_GAIN);
+      track(g!.target + delta * WHEEL_GAIN);
     };
 
     const onGestureStart = (e: Event) => {
@@ -116,7 +225,7 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
     const onGestureChange = (e: Event) => {
       e.preventDefault();
       const s = (e as GestureEvent).scale;
-      if (locked || g?.settling) return;
+      if (locked || settling()) return;
       if (!g && (Math.abs(s - 1) < 0.03 || !begin(s > 1 ? "in" : "out", document.elementFromPoint(pointer.x, pointer.y), "pinch", s))) return;
       const v = g!.direction === "in" ? (s - g!.baseScale) / SCALE_IN : (g!.baseScale - s) / SCALE_OUT;
       track(v);
@@ -135,11 +244,11 @@ export function usePinchZoom(ref: RefObject<HTMLElement | null>, handlers: Handl
 
     const onClick = (e: MouseEvent) => {
       if (g || window.getSelection()?.toString()) return;
-      if (begin(e.altKey ? "out" : "in", document.elementFromPoint(e.clientX, e.clientY), "click")) settle(1);
+      if (begin(e.altKey ? "out" : "in", document.elementFromPoint(e.clientX, e.clientY), "click")) settle(1, ZOOM_MS);
     };
 
-    api.current.play = (direction, at) => {
-      if (!g && begin(direction, at, "code")) settle(1);
+    api.current.play = (direction, at, ms) => {
+      if (!g && begin(direction, at, "code")) settle(1, ms ?? ZOOM_MS);
     };
 
     el.addEventListener("wheel", onWheel, { passive: false });

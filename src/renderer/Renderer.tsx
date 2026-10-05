@@ -7,6 +7,7 @@ import { useStore } from "../store";
 import { StrataMap } from "./StrataMap";
 import { usePinchZoom, type Direction } from "./usePinchZoom";
 import { View, type EditHandlers, type EditStart } from "./View";
+import { wordMorph } from "./wordMorph";
 
 interface Transition {
   /** The outer page, containing the sentence being zoomed. */
@@ -17,6 +18,11 @@ interface Transition {
   /** Gesture progress: 0 = where we started, 1 = where we're going. */
   p: MotionValue<number>;
 }
+
+/** A jump through the strata map goes one level at a time, this long each... */
+const STEP_MS = 720;
+/** ...pausing on each page it passes, long enough to see where you are. */
+const DWELL_MS = 180;
 
 const keyOf = (path: BlockId[]) => `/${path.join("/")}`;
 const ramp = (z: number, from: number, to: number) => {
@@ -47,14 +53,14 @@ export function Renderer() {
 
   // Gesture callbacks can fire before React re-renders, so track the live values in refs.
   // `resumeEditing`: a zoom began while writing, so writing resumes where it lands.
-  // `jump`: an explicit zoom queued by the strata map; `then`: where to go after it lands.
+  // `jump`: the next zoom queued by the strata map; `route`: the pages after it, in order.
   const live = useRef({
     path,
     transition,
     editing,
     resumeEditing: false,
     jump: null as Omit<Transition, "p"> | null,
-    then: null as BlockId[] | null,
+    route: [] as BlockId[][],
   });
   live.current.path = path;
   live.current.editing = editing;
@@ -70,8 +76,9 @@ export function Renderer() {
       // While writing, a click places the caret rather than zooming.
       if (transition || (editing && source === "click")) return false;
       let t: Transition;
-      const jump = live.current.jump;
+      const jump = source === "code" ? live.current.jump : null;
       live.current.jump = null;
+      if (source !== "code") live.current.route = []; // the reader took over
       if (jump) {
         t = { ...jump, p };
       } else if (direction === "in") {
@@ -111,30 +118,35 @@ export function Renderer() {
         setEditStart(landedOuter && after ? { where: "body", at: after } : { where: "body", edge: "start" });
         setEditing(true);
       }
-      // A sideways jump: now down from the shared page to the target.
-      const next = live.current.then;
-      live.current.then = null;
-      if (next && commit) requestAnimationFrame(() => jumpTo(next));
+      if (commit && live.current.route.length) setTimeout(stepRoute, DWELL_MS);
+      else live.current.route = [];
     },
   });
 
-  /** Go straight to any page: one camera move up or down, or up-then-down for a sideways move. */
+  /**
+   * Go to any page, a level at a time: up to the page both share, then down,
+   * so every page between is seen on the way.
+   */
   const jumpTo = (target: BlockId[]) => {
     const cur = live.current.path;
     if (live.current.transition) return;
     let common = 0;
     while (common < cur.length && common < target.length && cur[common] === target[common]) common++;
-    if (common === cur.length && target.length > cur.length) {
-      live.current.jump = { parent: cur, child: target, direction: "in" };
-      zoom.play("in", null);
-    } else if (common === target.length && cur.length > target.length) {
-      live.current.jump = { parent: target, child: cur, direction: "out" };
-      zoom.play("out", null);
-    } else if (common < cur.length) {
-      live.current.jump = { parent: cur.slice(0, common), child: cur, direction: "out" };
-      live.current.then = target;
-      zoom.play("out", null);
-    }
+    const route: BlockId[][] = [];
+    for (let n = cur.length - 1; n >= common; n--) route.push(cur.slice(0, n));
+    for (let n = common + 1; n <= target.length; n++) route.push(target.slice(0, n));
+    live.current.route = route;
+    stepRoute();
+  };
+
+  /** Zoom one level along the route. */
+  const stepRoute = () => {
+    const next = live.current.route.shift();
+    if (!next || live.current.transition) return void (live.current.route = []);
+    const cur = live.current.path;
+    const direction = next.length > cur.length ? "in" : "out";
+    live.current.jump = direction === "in" ? { parent: cur, child: next, direction } : { parent: next, child: cur, direction };
+    zoom.play(direction, null, STEP_MS);
   };
 
   const startEditing = useCallback((at: EditStart) => {
@@ -167,12 +179,17 @@ export function Renderer() {
    * The zoom is a camera move over two stacked pages. The outer page scales
    * up around the sentence while sliding it to where the headline sits; the
    * inner page rides the same camera, starting shrunk onto the sentence and
-   * ending at rest. The sentence cross-fades into the headline, the outer
-   * page fades away early, and the inner body fades in as it arrives.
+   * ending at rest. The sentence's words glide from their places in the
+   * paragraph into the headline, the outer page fades away early, and the
+   * inner body fades in as it arrives.
+   *
+   * Every frame touches only transforms and the opacity of a few composited
+   * elements, so the browser never repaints the pages' text mid-zoom.
    */
   useLayoutEffect(() => {
     if (!transition) return;
-    const stage = stageRef.current!.getBoundingClientRect();
+    const stageEl = stageRef.current!;
+    const stage = stageEl.getBoundingClientRect();
     const outer = layers.current.get(keyOf(transition.parent))!;
     const inner = layers.current.get(keyOf(transition.child))!;
 
@@ -186,31 +203,45 @@ export function Renderer() {
     const Ph = { x: h.left - stage.left, y: h.top - stage.top };
     const s0 = src?.getClientRects()[0];
     const Ps = s0 ? { x: s0.left - stage.left, y: s0.top - stage.top } : { x: Ph.x, y: stage.height / 3 };
+    const outerPage = outer.querySelector<HTMLElement>(".page")!;
+    const innerBody = inner.querySelector<HTMLElement>(".body")!;
     const S = parseFloat(getComputedStyle(head).fontSize) / parseFloat(getComputedStyle(src ?? outer).fontSize);
-    src?.setAttribute("data-src", "");
     outer.style.transformOrigin = `${Ps.x}px ${Ps.y}px`;
     inner.style.transformOrigin = `${Ph.x}px ${Ph.y}px`;
+
+    // The words travel on their own layer; the sentence keeps only its shading.
+    const morph = src ? wordMorph(stageEl, inner, src, head) : null;
+    if (morph) src!.setAttribute("data-src", "");
 
     const apply = (p: number) => {
       const z = transition.direction === "in" ? p : 1 - p; // 0 = outer page, 1 = inner page
       const s = 1 + (S - 1) * z;
-      outer.style.transform = `translate(${(Ph.x - Ps.x) * z}px, ${(Ph.y - Ps.y) * z}px) scale(${s})`;
-      inner.style.transform = `translate(${(Ps.x - Ph.x) * (1 - z)}px, ${(Ps.y - Ph.y) * (1 - z)}px) scale(${s / S})`;
-      outer.style.setProperty("--rest", String(1 - ramp(z, 0, 0.4)));
-      outer.style.setProperty("--src", String(1 - ramp(z, 0.3, 0.6)));
-      inner.style.setProperty("--head", String(ramp(z, 0.3, 0.6)));
-      inner.style.setProperty("--body", String(ramp(z, 0.45, 0.95)));
+      const to = { x: (Ph.x - Ps.x) * z, y: (Ph.y - Ps.y) * z }; // outer page's travel
+      const ti = { x: (Ps.x - Ph.x) * (1 - z), y: (Ps.y - Ph.y) * (1 - z) }; // inner page's
+      outer.style.transform = `translate3d(${to.x}px, ${to.y}px, 0) scale(${s})`;
+      inner.style.transform = `translate3d(${ti.x}px, ${ti.y}px, 0) scale(${s / S})`;
+      outerPage.style.opacity = String(1 - ramp(z, 0.08, 0.45)); // solid as it sets off, then gone
+      innerBody.style.opacity = String(ramp(z, 0.45, 0.95));
+      if (morph) {
+        head.style.opacity = "0";
+        morph.update(
+          (q) => ({ x: Ps.x + to.x + s * (q.x - Ps.x), y: Ps.y + to.y + s * (q.y - Ps.y) }),
+          (q) => ({ x: Ph.x + ti.x + (s / S) * (q.x - Ph.x), y: Ph.y + ti.y + (s / S) * (q.y - Ph.y) }),
+          ramp(z, 0.1, 0.8),
+          s / S,
+          ramp(z, 0.1, 0.5),
+        );
+      } else head.style.opacity = String(ramp(z, 0.3, 0.6));
     };
     apply(transition.p.get());
     const unsubscribe = transition.p.on("change", apply);
 
     return () => {
       unsubscribe();
+      morph?.remove();
       src?.removeAttribute("data-src");
-      for (const el of [outer, inner]) {
-        el.style.transform = el.style.transformOrigin = "";
-        for (const v of ["--rest", "--src", "--head", "--body"]) el.style.removeProperty(v);
-      }
+      for (const el of [outer, inner]) el.style.transform = el.style.transformOrigin = "";
+      for (const el of [outerPage, head, innerBody]) el.style.opacity = "";
     };
   }, [transition]);
 

@@ -207,10 +207,6 @@ button:disabled {
 
 /* Each page is its own scroll container; during a zoom two are stacked. */
 .layer {
-  --rest: 1;
-  --src: 1;
-  --head: 1;
-  --body: 1;
   position: absolute;
   inset: 0;
   overflow: auto;
@@ -288,25 +284,30 @@ button:disabled {
   background-color: rgba(var(--ink-rgb), 0.05);
 }
 
-/* Zoom choreography, driven by CSS variables set every frame. */
-.layer.parent .leaf,
-.layer.parent .headline {
-  opacity: var(--rest);
-}
-.layer.parent .dp {
-  opacity: var(--rest);
-}
-.layer.parent .dp .leaf {
-  opacity: 1;
-}
-.layer.parent [data-src] {
-  opacity: var(--src);
-}
-.layer.child .headline {
-  opacity: var(--head);
-}
+/*
+ * Zoom choreography: the renderer sets opacity on these every frame. Each is
+ * its own compositor layer, so fading never repaints text.
+ */
+.layer.parent .page,
+.layer.child .headline,
 .layer.child .body {
-  opacity: var(--body);
+  will-change: opacity;
+}
+/* The zoomed sentence's words travel on the morph layer; only its shading stays. */
+.layer.parent [data-src] {
+  color: transparent;
+}
+.morph {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.morph span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: pre;
+  transform-origin: 0 0;
 }
 
 .reader-hint {

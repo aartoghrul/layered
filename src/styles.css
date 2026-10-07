@@ -103,11 +103,23 @@ button:disabled {
   margin: calc(-1 * var(--pad-top)) calc(-1 * var(--pad-x)) calc(-1 * var(--pad-bottom));
   padding: var(--pad-top) var(--pad-x) var(--pad-bottom);
   border-radius: 18px;
-  transition: box-shadow 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .page.editing {
   cursor: text;
+}
+/* The lift, painted last so the paper under the body never covers it. */
+.page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03), 0 14px 36px -16px rgba(0, 0, 0, 0.1);
+  opacity: 0;
+  transition: opacity 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+  pointer-events: none;
+}
+.page.editing::after {
+  opacity: 1;
 }
 
 /* A quiet "Saved" in the frame's corner after each change while editing. */
@@ -213,7 +225,8 @@ button:disabled {
   overflow-anchor: none;
 }
 .layer.parent,
-.layer.child {
+.layer.child,
+.layer.backdrop {
   will-change: transform;
   pointer-events: none;
 }
@@ -227,6 +240,30 @@ button:disabled {
   font-size: 20px;
   line-height: 1.62;
 }
+
+/*
+ * White paper under the body, feathered at its edges: the page behind stays
+ * hidden under the text and comes into view gradually around it. Its top edge
+ * fades out in the gap under the headline, so the headline's own line keeps
+ * its context on either side.
+ */
+.body {
+  position: relative;
+  isolation: isolate;
+}
+.sheet {
+  --fade: 110px;
+  position: absolute;
+  z-index: -1;
+  inset: -24px calc(-1 * var(--fade)) calc(-1 * var(--fade));
+  background: white;
+  mask-image:
+    linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent),
+    linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - var(--fade)), transparent);
+  mask-composite: intersect;
+  pointer-events: none;
+}
+
 .reader .para,
 .reader .headline {
   /* Same whitespace handling as the editor, so lines break identically in both modes. */
@@ -289,12 +326,16 @@ button:disabled {
  * its own compositor layer, so fading never repaints text.
  */
 .layer.parent .page,
+.layer.backdrop .page,
 .layer.child .headline,
 .layer.child .body {
   will-change: opacity;
 }
-/* The zoomed sentence's words travel on the morph layer; only its shading stays. */
-.layer.parent [data-src] {
+/*
+ * The zoomed sentence's words travel on the morph layer and land as the
+ * headline; on the page left behind, only its shading stays.
+ */
+.layer [data-src] {
   color: transparent;
 }
 .morph {

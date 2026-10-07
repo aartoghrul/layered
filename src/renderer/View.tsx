@@ -6,7 +6,7 @@ import type { BlockId, Doc } from "../model/types";
 import { isOverText } from "./hitText";
 import { renderInline } from "./renderBlock";
 
-export type LayerRole = "current" | "parent" | "child";
+export type LayerRole = "current" | "parent" | "child" | "backdrop";
 
 /** How editing opened: which part of the page takes the caret, and where. */
 export interface EditStart extends FocusRequest {
@@ -71,7 +71,7 @@ export const View = forwardRef<HTMLDivElement, Props>(function View({ doc, path,
     headline && y < (bodyRef.current?.getBoundingClientRect().top ?? 0) ? "headline" : "body";
 
   return (
-    <div ref={ref} className={`layer ${role}`}>
+    <div ref={ref} className={`layer ${role}`} inert={role === "backdrop"} aria-hidden={role === "backdrop" || undefined}>
       <article className="reader">
         <div
           className={`page${editing ? " editing" : ""}`}
@@ -102,6 +102,7 @@ export const View = forwardRef<HTMLDivElement, Props>(function View({ doc, path,
               <h1 className="headline">{renderInline(headline, doc.blocks, memo)}</h1>
             ))}
           <div className="body" ref={bodyRef}>
+            <div className="sheet" />
             {editing ? (
               <PageEditor
                 blockId={blockId}

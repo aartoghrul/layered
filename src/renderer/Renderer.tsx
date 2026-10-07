@@ -6,7 +6,7 @@ import { MOD } from "../platform";
 import { useStore } from "../store";
 import { StrataMap } from "./StrataMap";
 import { usePinchZoom, type Direction } from "./usePinchZoom";
-import { View, type EditHandlers, type EditStart } from "./View";
+import { View, type EditHandlers, type EditStart, type LayerRole } from "./View";
 import { wordMorph } from "./wordMorph";
 
 interface Transition {
@@ -30,11 +30,60 @@ const ramp = (z: number, from: number, to: number) => {
   return t * t * (3 - 2 * t);
 };
 
+/**
+ * How much of the page a headline came from stays visible behind it: most
+ * at the top of the screen, around the headline, fading to least by
+ * GHOST_DEPTH of the way down.
+ */
+const GHOST = 0.16;
+const GHOST_LOW = 0.03;
+const GHOST_DEPTH = 0.65;
+
 /** Top-left of the first line box of an element's text. */
 function firstLine(el: Element) {
   const range = document.createRange();
   range.selectNodeContents(el);
   return range.getClientRects()[0] ?? el.getBoundingClientRect();
+}
+
+/**
+ * Where a sentence on the outer page and the headline it became on the inner
+ * page sit (their first lines' top-left, in stage coordinates), and the scale
+ * between them. Both pages must be untransformed.
+ */
+function align(stage: HTMLElement, outer: HTMLElement, inner: HTMLElement, srcId: BlockId) {
+  const box = stage.getBoundingClientRect();
+  const src = outer.querySelector<HTMLElement>(`[data-depth-id="${CSS.escape(srcId)}"]`);
+  const head = inner.querySelector<HTMLElement>(".headline")!;
+  const h = firstLine(head);
+  const Ph = { x: h.left - box.left, y: h.top - box.top };
+  const s0 = src?.getClientRects()[0];
+  const Ps = s0 ? { x: s0.left - box.left, y: s0.top - box.top } : { x: Ph.x, y: box.height / 3 };
+  const S = parseFloat(getComputedStyle(head).fontSize) / parseFloat(getComputedStyle(src ?? outer).fontSize);
+  return { src, head, Ph, Ps, S };
+}
+
+/** A camera move: a point q of an unzoomed page lands at (x, y) + k·q. */
+type Cam = { x: number; y: number; k: number };
+
+/** Where a zoom in leaves the outer page: grown around the sentence, the sentence on the headline. */
+const landed = ({ Ph, Ps, S }: ReturnType<typeof align>): Cam => ({ x: Ph.x - S * Ps.x, y: Ph.y - S * Ps.y, k: S });
+
+function place(el: HTMLElement, c: Cam) {
+  el.style.transformOrigin = "0 0";
+  el.style.transform = `translate3d(${c.x}px, ${c.y}px, 0) scale(${c.k})`;
+}
+
+/**
+ * Fade a ghost page from GHOST at the top of the screen to GHOST_LOW below
+ * GHOST_DEPTH of it (`f` of the way there), as the screen sits with the page in front
+ * scrolled to its top. The mask is in the ghost's own coordinates, so it
+ * rides the camera and scrolls with the page.
+ */
+function fadeDown(el: HTMLElement, { y, k }: Cam, frontScroll: number, height: number, f = 1) {
+  const top = -(y + frontScroll) / k;
+  const low = 1 - (1 - GHOST_LOW / GHOST) * f;
+  el.style.maskImage = `linear-gradient(#000 ${top}px, rgba(0, 0, 0, ${low}) ${top + (GHOST_DEPTH * height) / k}px)`;
 }
 
 export function Renderer() {
@@ -180,16 +229,17 @@ export function Renderer() {
    * up around the sentence while sliding it to where the headline sits; the
    * inner page rides the same camera, starting shrunk onto the sentence and
    * ending at rest. The sentence's words glide from their places in the
-   * paragraph into the headline, the outer page fades away early, and the
-   * inner body fades in as it arrives.
+   * paragraph into the headline, the outer page fades back to a faint ghost
+   * early, and the inner body fades in on its paper as it arrives. The ghost the outer
+   * page had of its own outer page rides the same camera and fades out.
    *
-   * Every frame touches only transforms and the opacity of a few composited
-   * elements, so the browser never repaints the pages' text mid-zoom.
+   * Every frame touches only transforms, the opacity of a few composited
+   * elements and the outer page's mask, so the browser never repaints the
+   * pages' text mid-zoom.
    */
   useLayoutEffect(() => {
     if (!transition) return;
     const stageEl = stageRef.current!;
-    const stage = stageEl.getBoundingClientRect();
     const outer = layers.current.get(keyOf(transition.parent))!;
     const inner = layers.current.get(keyOf(transition.child))!;
 
@@ -197,16 +247,24 @@ export function Renderer() {
     else outer.scrollTop = scrolls.current.get(keyOf(transition.parent)) ?? 0;
 
     const srcId = transition.child[transition.parent.length];
-    const src = outer.querySelector<HTMLElement>(`[data-depth-id="${CSS.escape(srcId)}"]`);
-    const head = inner.querySelector<HTMLElement>(".headline")!;
-    const h = firstLine(head);
-    const Ph = { x: h.left - stage.left, y: h.top - stage.top };
-    const s0 = src?.getClientRects()[0];
-    const Ps = s0 ? { x: s0.left - stage.left, y: s0.top - stage.top } : { x: Ph.x, y: stage.height / 3 };
+    const at = align(stageEl, outer, inner, srcId);
+    const { src, head, Ph, Ps, S } = at;
+    const outerCam = landed(at);
     const outerPage = outer.querySelector<HTMLElement>(".page")!;
     const innerBody = inner.querySelector<HTMLElement>(".body")!;
-    const S = parseFloat(getComputedStyle(head).fontSize) / parseFloat(getComputedStyle(src ?? outer).fontSize);
     outer.style.transformOrigin = `${Ps.x}px ${Ps.y}px`;
+
+    // The outer page's own backdrop, placed where it rests behind the outer page.
+    const backPath = transition.parent.slice(0, -1);
+    const back = transition.parent.length ? layers.current.get(keyOf(backPath)) : undefined;
+    let ghost: { cam: Cam; page: HTMLElement; src: HTMLElement | null } | null = null;
+    if (back) {
+      back.scrollTop = scrolls.current.get(keyOf(backPath)) ?? 0;
+      const a = align(stageEl, back, outer, transition.parent.at(-1)!);
+      a.src?.setAttribute("data-src", "");
+      ghost = { cam: landed(a), page: back.querySelector<HTMLElement>(".page")!, src: a.src };
+      fadeDown(back, ghost.cam, outer.scrollTop, stageEl.clientHeight);
+    }
     inner.style.transformOrigin = `${Ph.x}px ${Ph.y}px`;
 
     // The words travel on their own layer; the sentence keeps only its shading.
@@ -220,8 +278,16 @@ export function Renderer() {
       const ti = { x: (Ps.x - Ph.x) * (1 - z), y: (Ps.y - Ph.y) * (1 - z) }; // inner page's
       outer.style.transform = `translate3d(${to.x}px, ${to.y}px, 0) scale(${s})`;
       inner.style.transform = `translate3d(${ti.x}px, ${ti.y}px, 0) scale(${s / S})`;
-      outerPage.style.opacity = String(1 - ramp(z, 0.08, 0.45)); // solid as it sets off, then gone
+      const fade = ramp(z, 0.08, 0.45); // solid as it sets off, then a ghost
+      outerPage.style.opacity = String(1 - (1 - GHOST) * fade);
+      fadeDown(outer, outerCam, inner.scrollTop, stageEl.clientHeight, fade);
       innerBody.style.opacity = String(ramp(z, 0.45, 0.95));
+      if (ghost) {
+        const { cam: g } = ghost;
+        const o = { x: Ps.x + to.x - s * Ps.x, y: Ps.y + to.y - s * Ps.y }; // the outer page's camera, as a Cam
+        place(back!, { x: o.x + s * g.x, y: o.y + s * g.y, k: s * g.k });
+        ghost.page.style.opacity = String(GHOST * (1 - fade));
+      }
       if (morph) {
         head.style.opacity = "0";
         morph.update(
@@ -240,17 +306,63 @@ export function Renderer() {
       unsubscribe();
       morph?.remove();
       src?.removeAttribute("data-src");
-      for (const el of [outer, inner]) el.style.transform = el.style.transformOrigin = "";
-      for (const el of [outerPage, head, innerBody]) el.style.opacity = "";
+      ghost?.src?.removeAttribute("data-src");
+      for (const el of [outer, inner, back]) if (el) el.style.transform = el.style.transformOrigin = el.style.maskImage = "";
+      for (const el of [outerPage, head, innerBody, ghost?.page]) if (el) el.style.opacity = "";
     };
   }, [transition]);
 
-  const shown: { path: BlockId[]; role: "current" | "parent" | "child" }[] = transition
-    ? [
-        { path: transition.parent, role: "parent" },
-        { path: transition.child, role: "child" },
-      ]
-    : [{ path, role: "current" }];
+  /*
+   * At rest, the page a headline came from stays behind it, faint, exactly
+   * where the zoom left it: the context the sentence was lifted from. It
+   * scrolls with the page, as if the two were one sheet.
+   */
+  useLayoutEffect(() => {
+    if (transition || !path.length) return;
+    const backKey = keyOf(path.slice(0, -1));
+    const back = layers.current.get(backKey);
+    const front = layers.current.get(keyOf(path));
+    if (!back || !front) return;
+    back.scrollTop = scrolls.current.get(backKey) ?? back.scrollTop;
+    const page = back.querySelector<HTMLElement>(".page")!;
+    let src: HTMLElement | null = null;
+    let cam: Cam = { x: 0, y: 0, k: 1 };
+    let top = 0;
+    const scroll = () => place(back, { ...cam, y: cam.y - (front.scrollTop - top) });
+    const measure = () => {
+      back.style.transform = "";
+      src?.removeAttribute("data-src");
+      const a = align(stageRef.current!, back, front, path.at(-1)!);
+      src = a.src;
+      src?.setAttribute("data-src", "");
+      cam = landed(a);
+      top = front.scrollTop;
+      fadeDown(back, cam, top, stageRef.current!.clientHeight);
+      scroll();
+    };
+    measure();
+    page.style.opacity = String(GHOST);
+    front.addEventListener("scroll", scroll, { passive: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      front.removeEventListener("scroll", scroll);
+      window.removeEventListener("resize", measure);
+      src?.removeAttribute("data-src");
+      back.style.transform = back.style.transformOrigin = back.style.maskImage = page.style.opacity = "";
+    };
+  }, [transition, path, doc, editing]);
+
+  // The backdrop comes first, so it stays put in the DOM (and keeps its scroll) as roles change.
+  const outerPath = transition ? transition.parent : path;
+  const shown: { path: BlockId[]; role: LayerRole }[] = [
+    ...(outerPath.length ? [{ path: outerPath.slice(0, -1), role: "backdrop" as const }] : []),
+    ...(transition
+      ? [
+          { path: transition.parent, role: "parent" as const },
+          { path: transition.child, role: "child" as const },
+        ]
+      : [{ path, role: "current" as const }]),
+  ];
 
   return (
     <div className="stage" ref={stageRef}>
